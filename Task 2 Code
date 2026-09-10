@@ -1,0 +1,88 @@
+import socket
+import requests
+from datetime import datetime
+
+# 1. Input Target and Resolve IP
+target_host = input("Enter the target IP or domain: ").strip()
+
+try:
+    target_ip = socket.gethostbyname(target_host)
+except socket.gaierror:
+    print("\n[-] Error: Hostname could not be resolved.")
+    exit()
+
+ports_to_scan = [21, 22, 80, 443, 8080]
+
+print("-" * 50)
+print(f"Scanning Target : {target_host} ({target_ip})")
+print(f"Time Started    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print("-" * 50)
+
+open_ports = []
+
+# 2. Port Scanning
+try:
+    for port in ports_to_scan:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket.setdefaulttimeout(1.0)
+        result = s.connect_ex((target_ip, port))
+        if result == 0:
+            open_ports.append(port)
+            print(f"[+] Port {port:<5}: OPEN")
+        else:
+            print(f"[-] Port {port:<5}: Closed")
+        s.close()
+except KeyboardInterrupt:
+    print("\nExiting script.")
+    exit()
+except socket.error:
+    print("\nCould not connect to server.")
+    exit()
+
+# 3. HTTP Header & Security Audit
+banner_findings = []
+web_ports = [p for p in [80, 443, 8080] if p in open_ports]
+
+for port in web_ports:
+    protocol = "https" if port == 443 else "http"
+    url = f"{protocol}://{target_host}:{port}"
+    try:
+        response = requests.get(url, timeout=3, verify=False)
+        
+        # Software version leak check
+        server_header = response.headers.get("Server")
+        if server_header:
+            banner_findings.append(f"[{port}] Exposed Server Header: {server_header}")
+        else:
+            banner_findings.append(f"[{port}] Server header hidden.")
+
+        # Basic security headers check
+        security_headers = ["X-Frame-Options", "X-Content-Type-Options", "Strict-Transport-Security"]
+        for header in security_headers:
+            if header not in response.headers:
+                banner_findings.append(f"[{port}] Missing Security Header: {header}")
+                
+    except requests.exceptions.RequestException as e:
+        banner_findings.append(f"[{port}] Could not perform HTTP audit: {e}")
+
+# 4. Generate Report
+print("\n" + "=" * 50)
+print("       VULNERABILITY ASSESSMENT REPORT       ")
+print("=" * 50)
+print(f"Target      : {target_host} ({target_ip})")
+print(f"Report Time : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+print("\n[Open Ports Found]:")
+if open_ports:
+    for p in open_ports:
+        print(f" - Port {p} is open")
+else:
+    print(" - No targeted ports open.")
+
+print("\n[Configuration & Security Insights]:")
+if banner_findings:
+    for finding in banner_findings:
+        print(f" - {finding}")
+else:
+    print(" - No web services were reachable for analysis.")
+print("=" * 50)
