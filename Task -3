@@ -1,0 +1,70 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+
+# 1. Dataset representing emails and their labels
+data = {
+    'email_text': [
+        "Urgent: Update your banking password immediately by clicking here.",
+        "Hey, are we still meeting for lunch at 12 PM today?",
+        "Congratulations! You won a $1000 gift card. Claim your prize now.",
+        "Please find attached the project documentation for next week's review.",
+        "Verify your account status now or face permanent suspension.",
+        "Can you send over the updated spreadsheet whenever you have a chance?",
+        "Dear customer, suspicious activity detected on your account. Login here.",
+        "Thanks for the birthday wishes, hope you are doing well!",
+        "Security Alert: Your PayPal account has been restricted. Click link to verify.",
+        "Let me know when you're free to hop on a quick sync call tomorrow.",
+        "Your package delivery failed. Confirm your address details immediately.",
+        "Here are the meeting notes from today's design sprint."
+    ],
+    'label': ['Phishing', 'Safe', 'Phishing', 'Safe', 'Phishing', 'Safe', 'Phishing', 'Safe', 'Phishing', 'Safe', 'Phishing', 'Safe']
+}
+
+df = pd.DataFrame(data)
+
+# 2. Split dataset into features (X) and target labels (y)
+X = df['email_text']
+y = df['label']
+
+# Stratify ensures both Phishing and Safe emails are evenly split in train and test
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.33, random_state=42, stratify=y
+)
+
+# 3. Extract features using TF-IDF Vectorizer
+vectorizer = TfidfVectorizer(stop_words='english')
+X_train_tfidf = vectorizer.fit_transform(X_train)
+X_test_tfidf = vectorizer.transform(X_test)
+
+# 4. Train the Classifier
+model = RandomForestClassifier(random_state=42)
+model.fit(X_train_tfidf, y_train)
+
+# 5. Make Predictions
+y_pred = model.predict(X_test_tfidf)
+
+# 6. Evaluation Outcomes
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Model Accuracy: {accuracy * 100:.2f}%\n")
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# 7. Generate and Display Confusion Matrix
+cm = confusion_matrix(y_test, y_pred, labels=['Safe', 'Phishing'])
+
+plt.figure(figsize=(6, 4))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+            xticklabels=['Safe', 'Phishing'], 
+            yticklabels=['Safe', 'Phishing'])
+plt.title('Phishing Detection Confusion Matrix')
+plt.ylabel('Actual Category')
+plt.xlabel('Predicted Category')
+plt.tight_layout()
+plt.show()
