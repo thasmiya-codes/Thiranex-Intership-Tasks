@@ -1,0 +1,121 @@
+import os
+import sqlite3
+import bcrypt
+from flask import Flask, request, jsonify, session
+from functools import wraps
+
+app = Flask(__name__)
+
+# Secure Session Configuration
+app.secret_key = os.urandom(24) 
+
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=False  # Set to True in production with HTTPS
+)
+
+DATABASE = 'database.db'
+
+# 1. Database Hook Initialization
+def get_db_connection():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    with get_db_connection() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL
+            )
+        ''')
+        conn.commit()
+
+init_db()
+
+# Helper Authentication Decorator
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({"error": "Unauthorized. Please log in."}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# 2. Endpoints Implementation
+
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json() or request.form
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+
+    if not username or not password or len(password) < 6:
+        return jsonify({"error": "Invalid input. Password must be at least 6 characters long."}), 400
+
+    # Decoded to string to avoid byte/string storage mismatch in SQLite
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            'INSERT INTO users (username, password) VALUES (?, ?)',
+            (username, hashed_password)
+        )
+        conn.commit()
+        return jsonify({"message": "User registered successfully!"}), 201
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Username already taken."}), 400
+    finally:
+        conn.close()
+
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json() or request.form
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+
+    if not username or not password:
+        return jsonify({"error": "Username and password are required."}), 400
+
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+
+    if not user:
+        return jsonify({"error": "Invalid username or password."}), 401
+
+    # Ensure encoded bytes are passed to checkpw
+    stored_hash = user['password'].encode('utf-8') if isinstance(user['password'], str) else user['password']
+
+    if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
+        session['user_id'] = user['id']
+        session['username'] = user['username']
+        return jsonify({"message": "Login successful!", "username": user['username']}), 200
+    else:
+        return jsonify({"error": "Invalid username or password."}), 401
+
+
+@app.route('/dashboard', methods=['GET'])
+@login_required
+def dashboard():
+    return jsonify({
+        "message": f"Welcome to your secure dashboard, {session['username']}!",
+        "secret_data": "This protected area is validated by secure server sessions."
+    }), 200
+
+
+@app.route('/logout', methods=['POST'])
+@login_required
+def logout():
+    session.clear() 
+    return jsonify({"message": "Logged out successfully."}), 200
+
+
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)
